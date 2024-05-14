@@ -1,13 +1,17 @@
 # routing
 
-from flask import request, jsonify
+from flask import request, jsonify, send_file
 from app import app
 from app import mongo
 from app.model_login import Login
 from app.model_webinar import Webinar
 from app.model_speaker import Speaker
+from app.model_order import Order
 from bson import Binary
 import re
+import io
+import base64
+from PIL import Image
 
 @app.route('/', methods =['POST'])
 def master_login():
@@ -19,8 +23,8 @@ def master_login():
         return response_login
 
 
-
 def process_url(topic):
+
     # Convert the sentence to lowercase
     sentence = topic.lower()
     
@@ -32,14 +36,24 @@ def process_url(topic):
     
     return sentence
 
-
+   
 
 @app.route('/webinar_panel', methods = ['GET'])
 def webinar_panel():
     
     webinar_list = Webinar.view_webinar()
+    speaker_list = Speaker.view_speaker()
+    
+    # Speaker name list for drop down menu
+    speaker_namedata = []
+    
+    # Webinar list for display
+    webinar_data = []
+        
     if request.method in 'GET':
-        webinar_data = []
+        for speaker in speaker_list:
+            speaker_namedata.append(speaker["name"])
+        
         for webinar in webinar_list:
             webinar_dict ={
         
@@ -77,7 +91,7 @@ def webinar_panel():
             }
             
             webinar_data.append(webinar_dict)
-        return jsonify(webinar_data)
+        return jsonify(webinar_data, speaker_namedata)
     
     
 
@@ -86,14 +100,16 @@ def create_webinar():
     
     id = len(list(mongo.db.webinar_data.find({}))) + 1
     if request.method in ['POST']:
+        webinar_topic = request.json.get("topic")
+        speaker = request.json.get("speaker")
         
         webinar_data ={
         
         "id": id,
         
-        "topic":request.json.get("topic"),
+        "topic":webinar_topic,
+        "speaker":speaker,
         "industry":request.json.get("industry"),
-        "speaker":request.json.get("speaker"),
         "date":request.json.get("date"),
         "time":request.json.get("time"),
         "timeZone":request.json.get("timeZone"),
@@ -119,9 +135,12 @@ def create_webinar():
         "status":"Active",
         "webinar_url": process_url(request.json.get("topic")),
         "description":request.json.get("description"),
+        
         }
         response_create_webinar = Webinar.create_webinar(webinar_data)
-    return response_create_webinar
+        respone_history_speaker = Speaker.update_history(speaker,webinar_topic)
+
+    return response_create_webinar, respone_history_speaker
     
 
 
@@ -239,11 +258,11 @@ def speaker_panel():
             speaker_dict ={
 
             "id":speaker["id"],
+            "name":speaker["name"],
             "email":speaker["email"],
             "industry":speaker["industry"],
             "status":speaker["status"],
             "bio":speaker["bio"],
-            "photo":speaker["photo"]
             }
             speaker_data.append(speaker_dict)
         return jsonify(speaker_data)
@@ -251,52 +270,69 @@ def speaker_panel():
 
 @app.route('/speaker_panel/create_speaker', methods = ['POST'])
 def create_speaker():
-    id = len(list(mongo.db.speaker_dta.find({}))) +1
-
+    speaker_list = Speaker.view_speaker()
+    id = len(speaker_list) +1
+    image = None
+    
     if request.method in 'POST':
-        # photo_file = request.files.get("photo")
-        # if photo_file:
+        image_file = request.files.get("photo")
+        if image_file:
+            image_data = image_file.read()
+            image = base64.b64encode(image_data)
 
-        #     photo_data = photo_file.read()
-        #     photo = Binary(photo_data)
         speaker_data ={
             "id": id,
+            "name" :request.form.get("name"),
             "email": request.form.get("email"),
             "industry": request.form.get("industry"),
+            "contact" : request.form.get("contact"),
             "status":"Active",
             "bio": request.form.get("bio"),
-            "photo":request.form.get("photo"),
-            "history": None
+            "history": [],
+            "photo":image
 
         }
+        
         response_create_speaker = Speaker.create_speaker(speaker_data)
         return response_create_speaker
     
+
 
 @app.route('/speaker_panel/<int:s_id>', methods =['GET','PUT', 'PATCH', 'DELETE'])
 def update_speaker_panel(s_id):
     
     speaker_data = Speaker.data_speaker(s_id)
     speaker = speaker_data[0]
-    history = []
-    
+    image = None
+    image_data = speaker.get("photo")
+    if image_data:
+        binary_data = base64.b64decode(image_data)
+        image = Image.open(io.BytesIO(binary_data))
+
     if request.method in 'GET':
         if speaker:
-            history = speaker['history']
+            history = speaker.get('history')
+            
             speaker_dict={
-                "id": speaker["id"],
-                "name": speaker["name"],
-                "industry": speaker["industry"],
-                "status": speaker["status"],
-                "bio": speaker["bio"],
-                "photo": speaker["photo"],
+                "id": speaker ["id"],
+                "name": speaker ["name"],
+                "email":speaker ["email"],
+                "industry": speaker ["industry"],
+                "status": speaker ["status"],
+                "bio": speaker ["bio"],
+                "contact" :speaker ["contact"],
                 "history": history
-
             }
-            return speaker_dict, 200
-        else:
-            return {"success":False, "message": "failed to retrieve speaker info"}
-        
+            # Convert the bytes into a PIL image
+            if image:
+                # speaker_dict["photo"] = process_image_data
+                # process_image_data = process_image(image_binary)
+                # image.show()
+                return send_file(image, mimetype='image/jpeg'), speaker_dict
+                # return (speaker_dict)
+            else:
+                return speaker_dict        
+    
     elif request.method in "PATCH":
 
         speaker_status = request.json.get("status")
@@ -315,7 +351,7 @@ def update_speaker_panel(s_id):
             "industry": speaker["industry"],
             "status": speaker["status"],
             "bio": speaker["bio"],
-            "photo": speaker["photo"],
+            "photo":binary_data,
             "history": history
         }
 
@@ -328,3 +364,75 @@ def update_speaker_panel(s_id):
     elif request.method in 'DELETE':
 
         return Speaker.delete_speaker(s_id)
+
+
+@app.route('/order_panel', methods =['GET'])
+def order_panel():
+    
+    orderlist = Order.view_order()
+    if request.method in 'GET':
+        order_data = []
+        for order in orderlist:
+            
+            order_dict = {
+                "id": order ["id"],
+                "orderdate": order["orderdate"],
+                "webinardate": order["webinardate"],
+                "topic": order["topic"],
+                "session": order["sessiion"],
+                "customername": order["customername"],
+                "customeremail": order["customeremail"],
+                "billingemail": order["billingemail"],
+                "orderamount": order["amount"],
+                "paymentstatus": order["paymentstatus"],
+                "country" : order["country"],
+                "state" : order["state"],
+                "city" : order["city"],
+                "zipcode" : order["zipcode"],
+                "address": order["address"]
+
+            }
+
+            order_data.append(order_dict)
+        return jsonify(order_data), 200
+
+@app.route('/order_panel/<int:o_id>', methods = ['GET'])
+def order_detail(o_id):
+    
+    order_data = Order.order_data(o_id)
+    order = order_data[0]
+    
+    if request.method in 'GET':
+        if order:
+           
+            order_dict = {
+                "id": order ["id"],
+                "orderdate": order["orderdate"],
+                "webinardate": order["webinardate"],
+                "topic": order["topic"],
+                "session": order["sessiion"],
+                "customername": order["customername"],
+                "customeremail": order["customeremail"],
+                "billingemail": order["billingemail"],
+                "orderamount": order["amount"],
+                "paymentstatus": order["paymentstatus"],
+                "country" : order["country"],
+                "state" : order["state"],
+                "city" : order["city"],
+                "zipcode" : order["zipcode"],
+                "address": order["address"]
+
+            }
+
+
+            document = order["document"]
+            if document:
+                pdf_content_b64 = base64.b64encode(document).decode('utf-8')
+
+                
+                return send_file(pdf_content_b64, as_attachment=True, download_name='oder_catalog.pdf'), order_dict
+            else:
+                return order_dict
+
+
+

@@ -29,7 +29,7 @@ class Speaker():
     def data_speaker(s_id):
 
         try:
-            speaker = list(mongo.db.webinar_data.find({"id":s_id}))
+            speaker = list(mongo.db.speaker_data.find({"id":s_id}))
             return speaker
         except Exception as e:
             return None
@@ -64,3 +64,15 @@ class Speaker():
         
         except Exception as e:
             return {"success": False, "message": str(e)}
+        
+    @staticmethod
+    def update_history(s_name, webinar_topic):
+
+        try:
+            result= mongo.db.speaker_data.update_one({
+               {"name": s_name,},{"$addToSet":{"history":webinar_topic}}
+           })
+            return result.modified_count
+        except Exception as e:
+            return {"success":False, "message":str(e)}
+
