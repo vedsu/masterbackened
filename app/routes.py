@@ -427,7 +427,9 @@ def order_detail(o_id):
 
             document = order["document"]
             if document:
-                pdf_content_b64 = base64.b64encode(document).decode('utf-8')
+                binary_data = base64.b64decode(document)
+                pdf_content_b64 = Image.open(io.BytesIO(binary_data)
+                # pdf_content_b64 = base64.b64encode(document).decode('utf-8')
 
                 
                 return send_file(pdf_content_b64, as_attachment=True, download_name='oder_catalog.pdf'), order_dict
